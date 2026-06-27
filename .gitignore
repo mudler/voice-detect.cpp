@@ -1,0 +1,15 @@
+/build*/
+/.venv/
+/third_party/.ggml-patch.lock
+/models/*
+!/models/MANIFEST.md
+!/models/ecapa_tdnn_manifest.txt
+*.gguf
+
+# Reference-side scratch (HF checkpoint symlink dir created by trace/convert).
+/pretrained_models/
+
+# Local scratch.
+__pycache__/
+*.pyc
+/.cache/

@@ -1,0 +1,10 @@
+{
+  "ggml_e2e_median": 23.75,
+  "ggml_e2e_min": 15.59,
+  "onnx_e2e_median": 64.7,
+  "onnx_e2e_min": 9.17,
+  "onnx_net_median": 25.17,
+  "onnx_net_min": 7.8,
+  "onnx_fbank_median": 39.52,
+  "load": "36.33"
+}

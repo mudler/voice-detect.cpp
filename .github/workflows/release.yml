@@ -1,0 +1,388 @@
+name: release
+
+# Pre-built voicedetect-cli bundles for every release.
+#
+# One self-contained binary per (platform, backend) pair, packaged with the
+# LICENSE and README. BUILD_SHARED_LIBS=OFF folds the ggml backends into the
+# binary. GGML_NATIVE=OFF keeps the binaries portable across CPUs, same as the
+# docker images and ci.yml. A separate shared C-API lib build ships
+# libvoicedetect.so + the header for FFI/dlopen consumers (LocalAI).
+#
+# Triggers: pushing a v* tag builds everything and attaches the bundles to the
+# GitHub release for that tag (creating a draft release if none exists yet).
+# workflow_dispatch builds the same bundles and leaves them as workflow
+# artifacts.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-linux:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: cpu
+            arch: x64
+            runner: ubuntu-22.04
+            cmake_args: ""
+            cuda_archs: ""
+          - backend: cpu
+            arch: arm64
+            runner: ubuntu-22.04-arm
+            cmake_args: ""
+            cuda_archs: ""
+          - backend: vulkan
+            arch: x64
+            runner: ubuntu-22.04
+            cmake_args: "-DVOICEDETECT_GGML_VULKAN=ON"
+            cuda_archs: ""
+          - backend: cuda
+            arch: x64
+            runner: ubuntu-24.04
+            cmake_args: "-DVOICEDETECT_GGML_CUDA=ON -DGGML_CUDA_NO_VMM=ON"
+            cuda_archs: ""
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Vulkan SDK (LunarG)
+        if: matrix.backend == 'vulkan'
+        run: |
+          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
+            | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc >/dev/null
+          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list \
+            https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
+          sudo apt-get update
+          sudo apt-get install -y vulkan-sdk
+
+      - name: Install CUDA toolkit 13
+        if: matrix.backend == 'cuda'
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y cuda-toolkit-13-0
+          echo "/usr/local/cuda/bin" >> "$GITHUB_PATH"
+
+      - name: Configure
+        env:
+          CUDA_ARCHS: ${{ matrix.cuda_archs }}
+        run: |
+          EXTRA=""
+          if [ "${{ matrix.backend }}" = "cuda" ]; then
+            EXTRA="-DCMAKE_BUILD_RPATH=\$ORIGIN"
+          fi
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_NATIVE=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DVOICEDETECT_BUILD_CLI=ON \
+            -DVOICEDETECT_BUILD_TESTS=OFF \
+            ${{ matrix.cmake_args }} \
+            ${CUDA_ARCHS:+"-DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCHS}"} \
+            ${EXTRA:+"$EXTRA"}
+
+      - name: Build
+        run: cmake --build build -j"$(getconf _NPROCESSORS_ONLN)"
+
+      - name: Smoke test (usage banner)
+        run: |
+          out=$(./build/examples/cli/voicedetect-cli 2>&1 || true)
+          grep -qi usage <<<"$out"
+
+      - name: Package
+        id: pack
+        run: |
+          BUNDLE="voicedetect-${{ steps.ver.outputs.version }}-bin-linux-${{ matrix.backend }}-${{ matrix.arch }}"
+          mkdir "$BUNDLE"
+          cp build/examples/cli/voicedetect-cli LICENSE README.md "$BUNDLE"/
+          if [ "${{ matrix.backend }}" = "cuda" ]; then
+            cp -P /usr/local/cuda/targets/x86_64-linux/lib/libcudart.so* \
+                  /usr/local/cuda/targets/x86_64-linux/lib/libcublas.so* \
+                  /usr/local/cuda/targets/x86_64-linux/lib/libcublasLt.so* \
+                  "$BUNDLE"/
+          fi
+          tar -czf "$BUNDLE.tar.gz" "$BUNDLE"
+          echo "bundle=$BUNDLE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pack.outputs.bundle }}
+          path: ${{ steps.pack.outputs.bundle }}.tar.gz
+          if-no-files-found: error
+
+      - name: Configure (shared C-API lib)
+        env:
+          CUDA_ARCHS: ${{ matrix.cuda_archs }}
+        run: |
+          EXTRA=""
+          if [ "${{ matrix.backend }}" = "cuda" ]; then
+            EXTRA="-DCMAKE_BUILD_RPATH=\$ORIGIN"
+          fi
+          cmake -B build-shared \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_NATIVE=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DVOICEDETECT_SHARED=ON \
+            -DVOICEDETECT_BUILD_CLI=OFF \
+            -DVOICEDETECT_BUILD_TESTS=OFF \
+            ${{ matrix.cmake_args }} \
+            ${CUDA_ARCHS:+"-DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCHS}"} \
+            ${EXTRA:+"$EXTRA"}
+
+      - name: Build (shared C-API lib)
+        run: cmake --build build-shared -j"$(getconf _NPROCESSORS_ONLN)"
+
+      - name: Package (shared C-API lib)
+        id: pack_lib
+        run: |
+          BUNDLE="voicedetect-${{ steps.ver.outputs.version }}-lib-linux-${{ matrix.backend }}-${{ matrix.arch }}"
+          mkdir "$BUNDLE"
+          cp build-shared/libvoicedetect.so include/voicedetect_capi.h LICENSE README.md "$BUNDLE"/
+          if [ "${{ matrix.backend }}" = "cuda" ]; then
+            cp -P /usr/local/cuda/targets/x86_64-linux/lib/libcudart.so* \
+                  /usr/local/cuda/targets/x86_64-linux/lib/libcublas.so* \
+                  /usr/local/cuda/targets/x86_64-linux/lib/libcublasLt.so* \
+                  "$BUNDLE"/
+          fi
+          tar -czf "$BUNDLE.tar.gz" "$BUNDLE"
+          echo "bundle=$BUNDLE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload shared C-API lib artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pack_lib.outputs.bundle }}
+          path: ${{ steps.pack_lib.outputs.bundle }}.tar.gz
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-14
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: metal
+            arch: arm64
+            cmake_args: "-DVOICEDETECT_GGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON"
+          - backend: cpu
+            arch: x64
+            cmake_args: "-DCMAKE_OSX_ARCHITECTURES=x86_64"
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_NATIVE=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DVOICEDETECT_BUILD_CLI=ON \
+            -DVOICEDETECT_BUILD_TESTS=OFF \
+            ${{ matrix.cmake_args }}
+
+      - name: Build
+        run: cmake --build build -j"$(getconf _NPROCESSORS_ONLN)"
+
+      - name: Smoke test (usage banner)
+        if: matrix.arch == 'arm64'
+        run: |
+          out=$(./build/examples/cli/voicedetect-cli 2>&1 || true)
+          grep -qi usage <<<"$out"
+
+      - name: Package
+        id: pack
+        run: |
+          BUNDLE="voicedetect-${{ steps.ver.outputs.version }}-bin-macos-${{ matrix.backend }}-${{ matrix.arch }}"
+          mkdir "$BUNDLE"
+          cp build/examples/cli/voicedetect-cli LICENSE README.md "$BUNDLE"/
+          tar -czf "$BUNDLE.tar.gz" "$BUNDLE"
+          echo "bundle=$BUNDLE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pack.outputs.bundle }}
+          path: ${{ steps.pack.outputs.bundle }}.tar.gz
+          if-no-files-found: error
+
+      - name: Configure (shared C-API lib)
+        run: |
+          cmake -B build-shared \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_NATIVE=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DVOICEDETECT_SHARED=ON \
+            -DVOICEDETECT_BUILD_CLI=OFF \
+            -DVOICEDETECT_BUILD_TESTS=OFF \
+            ${{ matrix.cmake_args }}
+
+      - name: Build (shared C-API lib)
+        run: cmake --build build-shared -j"$(getconf _NPROCESSORS_ONLN)"
+
+      - name: Package (shared C-API lib)
+        id: pack_lib
+        run: |
+          BUNDLE="voicedetect-${{ steps.ver.outputs.version }}-lib-macos-${{ matrix.backend }}-${{ matrix.arch }}"
+          mkdir "$BUNDLE"
+          cp build-shared/libvoicedetect.dylib include/voicedetect_capi.h LICENSE README.md "$BUNDLE"/
+          tar -czf "$BUNDLE.tar.gz" "$BUNDLE"
+          echo "bundle=$BUNDLE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload shared C-API lib artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pack_lib.outputs.bundle }}
+          path: ${{ steps.pack_lib.outputs.bundle }}.tar.gz
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: cpu
+            cmake_args: ""
+            cuda_archs: ""
+          - backend: vulkan
+            cmake_args: "-DVOICEDETECT_GGML_VULKAN=ON"
+            cuda_archs: ""
+          - backend: cuda
+            cmake_args: "-DVOICEDETECT_GGML_CUDA=ON -DGGML_CUDA_NO_VMM=ON"
+            cuda_archs: ""
+    env:
+      VULKAN_VERSION: 1.4.321.1
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Vulkan SDK
+        if: matrix.backend == 'vulkan'
+        shell: pwsh
+        run: |
+          curl.exe -L -o vulkan-sdk.exe "https://sdk.lunarg.com/sdk/download/$env:VULKAN_VERSION/windows/vulkansdk-windows-X64-$env:VULKAN_VERSION.exe"
+          Start-Process -Wait -FilePath .\vulkan-sdk.exe -ArgumentList '--accept-licenses','--default-answer','--confirm-command','install'
+          "VULKAN_SDK=C:\VulkanSDK\$env:VULKAN_VERSION" | Out-File -Append $env:GITHUB_ENV
+          "C:\VulkanSDK\$env:VULKAN_VERSION\Bin" | Out-File -Append $env:GITHUB_PATH
+
+      - name: Install CUDA toolkit
+        if: matrix.backend == 'cuda'
+        uses: Jimver/cuda-toolkit@v0.2.21
+        with:
+          cuda: '12.8.0'
+          method: network
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust"]'
+          use-github-cache: true
+
+      - name: MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure
+        env:
+          CUDA_ARCHS: ${{ matrix.cuda_archs }}
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_NATIVE=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DVOICEDETECT_BUILD_CLI=ON \
+            -DVOICEDETECT_BUILD_TESTS=OFF \
+            ${{ matrix.cmake_args }} \
+            ${CUDA_ARCHS:+"-DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCHS}"}
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Smoke test (usage banner)
+        run: |
+          out=$(./build/examples/cli/voicedetect-cli.exe 2>&1 || true)
+          grep -qi usage <<<"$out"
+
+      - name: Package
+        id: pack
+        shell: pwsh
+        run: |
+          $bundle = "voicedetect-${{ steps.ver.outputs.version }}-bin-win-${{ matrix.backend }}-x64"
+          New-Item -ItemType Directory -Path $bundle | Out-Null
+          Copy-Item build/examples/cli/voicedetect-cli.exe,LICENSE,README.md $bundle/
+          Compress-Archive -Path $bundle -DestinationPath "$bundle.zip"
+          "bundle=$bundle" | Out-File -Append $env:GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pack.outputs.bundle }}
+          path: ${{ steps.pack.outputs.bundle }}.zip
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Upload assets to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "$TAG" --notes "Pre-built binaries for $TAG"
+          fi
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber dist/*

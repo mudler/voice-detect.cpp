@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # -------------------------------------------------------------------------
+  # build: configure, compile, run model-independent unit tests.
+  # Runs on every push and pull_request. Never downloads a model - fast gate.
+  # -------------------------------------------------------------------------
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: configure
+        # GGML_NATIVE=OFF for portability in CI (no host-cpu ISA extensions).
+        run: cmake -B build -DVOICEDETECT_BUILD_TESTS=ON -DVOICEDETECT_BUILD_CLI=ON -DGGML_NATIVE=OFF
+
+      - name: build
+        run: cmake --build build -j
+
+      - name: test (model-independent only)
+        # -LE model excludes the model-labelled tests (check_convert, test_fbank)
+        # that need the Python venv and a reference checkpoint/baseline. Those
+        # SKIP (exit 77) without them anyway, but excluding keeps the gate fast.
+        run: ctest --test-dir build --output-on-failure -LE model

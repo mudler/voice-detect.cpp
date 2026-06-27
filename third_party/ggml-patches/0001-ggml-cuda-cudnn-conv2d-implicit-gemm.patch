@@ -1,0 +1,379 @@
+diff --git a/src/ggml-cuda/CMakeLists.txt b/src/ggml-cuda/CMakeLists.txt
+index d3953eee..4f8de668 100644
+--- a/src/ggml-cuda/CMakeLists.txt
++++ b/src/ggml-cuda/CMakeLists.txt
+@@ -131,6 +131,26 @@ if (CUDAToolkit_FOUND)
+ 
+     add_compile_definitions(GGML_CUDA_PEER_MAX_BATCH_SIZE=${GGML_CUDA_PEER_MAX_BATCH_SIZE})
+ 
++    # cuDNN forward-conv path for GGML_OP_CONV_2D (see cudnn-conv.cu). Opt-in via
++    # -DGGML_CUDA_USE_CUDNN=ON (voice-detect.cpp forwards VOICEDETECT_GGML_CUDNN).
++    # Links the system cuDNN and defines GGML_CUDA_USE_CUDNN for the backend TU so
++    # the dispatch in ggml-cuda.cu routes convs through cuDNN implicit-GEMM.
++    option(GGML_CUDA_USE_CUDNN "ggml: use cuDNN for conv2d (implicit-GEMM, no im2col spill)" OFF)
++    if (GGML_CUDA_USE_CUDNN)
++        find_library(CUDNN_LIBRARY NAMES cudnn
++            HINTS ${CUDAToolkit_LIBRARY_DIR} /usr/lib/aarch64-linux-gnu /usr/lib/x86_64-linux-gnu)
++        find_path(CUDNN_INCLUDE_DIR NAMES cudnn.h
++            HINTS ${CUDAToolkit_INCLUDE_DIRS} /usr/include/aarch64-linux-gnu /usr/include/x86_64-linux-gnu /usr/include)
++        if (CUDNN_LIBRARY AND CUDNN_INCLUDE_DIR)
++            message(STATUS "ggml-cuda: cuDNN enabled (${CUDNN_LIBRARY})")
++            target_compile_definitions(ggml-cuda PRIVATE GGML_CUDA_USE_CUDNN)
++            target_include_directories(ggml-cuda PRIVATE ${CUDNN_INCLUDE_DIR})
++            target_link_libraries(ggml-cuda PRIVATE ${CUDNN_LIBRARY})
++        else()
++            message(FATAL_ERROR "GGML_CUDA_USE_CUDNN=ON but cuDNN was not found (set CUDNN_LIBRARY / CUDNN_INCLUDE_DIR)")
++        endif()
++    endif()
++
+     if (GGML_CUDA_GRAPHS)
+         add_compile_definitions(GGML_CUDA_USE_GRAPHS)
+     endif()
+diff --git a/src/ggml-cuda/cudnn-conv.cu b/src/ggml-cuda/cudnn-conv.cu
+new file mode 100644
+index 00000000..522b75a2
+--- /dev/null
++++ b/src/ggml-cuda/cudnn-conv.cu
+@@ -0,0 +1,296 @@
++#include "cudnn-conv.cuh"
++
++#ifdef GGML_CUDA_USE_CUDNN
++
++#include <cudnn.h>
++
++#include <cstdint>
++#include <cstdlib>
++#include <cstring>
++#include <mutex>
++#include <unordered_map>
++
++// =============================================================================
++// cuDNN forward-conv path for GGML_OP_CONV_2D (used by voice-detect.cpp's
++// conv2d_auto CUDA branch instead of im2col + cuBLAS/cutlass SGEMM).
++//
++// Why: ggml's default conv is ggml_conv_2d = im2col + mul_mat. The im2col kernel
++// materialises a (KW*KH*IC)-inflated activation buffer to GLOBAL memory before
++// the GEMM, and on the small-channel all-3x3 WeSpeaker ResNet34 encoder that one
++// kernel was ~62% of GPU time (nsys). cuDNN's IMPLICIT_PRECOMP_GEMM streams the
++// convolution straight from the NCHW activations with no im2col spill, and
++// autotunes the algorithm.
++//
++// Layout: ggml's GGML_OP_CONV_2D tensors are ALREADY in cuDNN NCHW order
++// (whcn_layout in conv2d.cu): input index n*(IC*IH*IW)+c*IH*IW+y*IW+x,
++// filter c_out*(IC*KH*KW)+c_in*(KH*KW)+ky*KW+kx, output n*(OC*OH*OW)+...; i.e.
++// CUDNN_TENSOR_NCHW for activations and the equivalent KCRS filter layout. So
++// there is ZERO NCHW<->NHWC transpose tax: consecutive convs stay NCHW and feed
++// each other directly, exactly like the im2col path they replace (and exactly
++// like the torch-cuDNN reference, whose tensors are NCHW too).
++//
++// CUDA-graph-capture safety: voice-detect.cpp captures a persistent CUDA graph
++// (capture once, replay). Descriptor creation, the v7 algorithm heuristic, and
++// the workspace cudaMalloc all happen ONCE per unique shape, on the first
++// (eager, non-captured) call - they are cached in g_cache keyed by the full conv
++// geometry. On every subsequent (captured + replayed) call we only bind the
++// stream and launch cudnnConvolutionForward against the cached descriptors and
++// pre-allocated workspace: pure kernel launches, no allocation, no host sync, so
++// they record cleanly into the CUDA graph and replay. If a brand-new shape is
++// ever seen WHILE the stream is capturing (should not happen given warmup), we
++// bail to false so the caller uses the native kernel rather than do an illegal
++// in-capture allocation.
++//
++// A/B + kill switch: env GGML_CUDA_USE_CUDNN=0 forces the native fallback at
++// runtime (the voice-detect side also has VD_CONV2D=im2col which simply never
++// emits GGML_OP_CONV_2D). TF32 tensor-op math is enabled (matches the cutlass
++// s1688 TF32 path the im2col route used, and torch's default conv math), so the
++// encoder cosine-parity gate (>= 0.999) is preserved.
++// =============================================================================
++
++namespace {
++
++#define CUDNN_CHECK(call)                                                       \
++    do {                                                                        \
++        cudnnStatus_t _st = (call);                                             \
++        if (_st != CUDNN_STATUS_SUCCESS) {                                      \
++            GGML_LOG_ERROR("%s: cuDNN error %d (%s) at %s:%d\n", __func__,      \
++                           (int) _st, cudnnGetErrorString(_st), __FILE__,       \
++                           __LINE__);                                           \
++            return false;                                                       \
++        }                                                                       \
++    } while (0)
++
++struct conv_key {
++    int N, C, H, W;
++    int OC, KH, KW;
++    int sh, sw, ph, pw, dh, dw;
++    int device;
++
++    bool operator==(const conv_key & o) const {
++        return std::memcmp(this, &o, sizeof(conv_key)) == 0;
++    }
++};
++
++struct conv_key_hash {
++    size_t operator()(const conv_key & k) const {
++        // FNV-1a over the POD key.
++        const unsigned char * p = reinterpret_cast<const unsigned char *>(&k);
++        size_t h = 1469598103934665603ULL;
++        for (size_t i = 0; i < sizeof(conv_key); ++i) {
++            h ^= p[i];
++            h *= 1099511628211ULL;
++        }
++        return h;
++    }
++};
++
++struct conv_plan {
++    cudnnTensorDescriptor_t      x_desc = nullptr;
++    cudnnTensorDescriptor_t      y_desc = nullptr;
++    cudnnFilterDescriptor_t      w_desc = nullptr;
++    cudnnConvolutionDescriptor_t c_desc = nullptr;
++    cudnnConvolutionFwdAlgo_t    algo   = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM;
++    void *                       workspace      = nullptr;
++    size_t                       workspace_size = 0;
++};
++
++// Persistent per-device cuDNN handle (created lazily on first eager use) + a
++// per-shape plan cache. A single global mutex guards both: ggml graph compute is
++// single-threaded per device, this only protects against a pathological
++// concurrent first-touch.
++std::mutex                                                       g_mutex;
++cudnnHandle_t                                                    g_handle[GGML_CUDA_MAX_DEVICES] = { nullptr };
++std::unordered_map<conv_key, conv_plan, conv_key_hash>          g_cache;
++
++bool cudnn_disabled_by_env() {
++    static const int v = [] {
++        const char * e = std::getenv("GGML_CUDA_USE_CUDNN");
++        // Default ON when compiled in; only an explicit "0" disables.
++        return (e && e[0] == '0' && e[1] == '\0') ? 1 : 0;
++    }();
++    return v != 0;
++}
++
++cudnnHandle_t get_handle(int device) {
++    if (g_handle[device] == nullptr) {
++        cudnnHandle_t h = nullptr;
++        if (cudnnCreate(&h) != CUDNN_STATUS_SUCCESS) {
++            return nullptr;
++        }
++        g_handle[device] = h;
++    }
++    return g_handle[device];
++}
++
++// Build (or reuse) a cached plan for this shape. MUST be called outside CUDA
++// graph capture. Returns false on any cuDNN error or OOM.
++bool get_or_build_plan(cudnnHandle_t handle, const conv_key & k, conv_plan ** out) {
++    auto it = g_cache.find(k);
++    if (it != g_cache.end()) {
++        *out = &it->second;
++        return true;
++    }
++
++    conv_plan p;
++
++    CUDNN_CHECK(cudnnCreateTensorDescriptor(&p.x_desc));
++    CUDNN_CHECK(cudnnCreateTensorDescriptor(&p.y_desc));
++    CUDNN_CHECK(cudnnCreateFilterDescriptor(&p.w_desc));
++    CUDNN_CHECK(cudnnCreateConvolutionDescriptor(&p.c_desc));
++
++    CUDNN_CHECK(cudnnSetTensor4dDescriptor(p.x_desc, CUDNN_TENSOR_NCHW,
++                                           CUDNN_DATA_FLOAT, k.N, k.C, k.H, k.W));
++    CUDNN_CHECK(cudnnSetFilter4dDescriptor(p.w_desc, CUDNN_DATA_FLOAT,
++                                           CUDNN_TENSOR_NCHW, k.OC, k.C, k.KH, k.KW));
++    CUDNN_CHECK(cudnnSetConvolution2dDescriptor(p.c_desc, k.ph, k.pw, k.sh, k.sw,
++                                                k.dh, k.dw, CUDNN_CROSS_CORRELATION,
++                                                CUDNN_DATA_FLOAT));
++    // TF32 tensor-op math: matches the TF32 cutlass SGEMM the im2col path used and
++    // torch's default conv math; keeps cosine parity within fp32 tolerance.
++    CUDNN_CHECK(cudnnSetConvolutionMathType(p.c_desc, CUDNN_TENSOR_OP_MATH));
++    CUDNN_CHECK(cudnnSetConvolutionGroupCount(p.c_desc, 1));
++
++    int on = 0, oc = 0, oh = 0, ow = 0;
++    CUDNN_CHECK(cudnnGetConvolution2dForwardOutputDim(p.c_desc, p.x_desc, p.w_desc,
++                                                      &on, &oc, &oh, &ow));
++    CUDNN_CHECK(cudnnSetTensor4dDescriptor(p.y_desc, CUDNN_TENSOR_NCHW,
++                                           CUDNN_DATA_FLOAT, on, oc, oh, ow));
++
++    // Algorithm selection. We run this ONCE per shape, on the first eager
++    // (non-captured) call, so the real autotuner is safe: cudnnFindConvolution-
++    // ForwardAlgorithm benchmarks every engine (it allocates + launches its own
++    // scratch internally) and returns them sorted by MEASURED time. The v7
++    // heuristic only estimates and on this small-channel all-3x3 encoder it picked
++    // a non-tensor-core SIMT sgemm for several shapes; the measured autotune lets
++    // cuDNN choose the genuinely fastest engine (winograd / TF32 tensor-op) per
++    // shape. Capture-safety is unaffected: this never runs while capturing (guard
++    // below + warmup). Falls back to the v7 heuristic if Find fails.
++    int                            req = 8;
++    int                            ret = 0;
++    cudnnConvolutionFwdAlgoPerf_t  perf[8];
++    if (cudnnFindConvolutionForwardAlgorithm(handle, p.x_desc, p.w_desc, p.c_desc,
++                                             p.y_desc, req, &ret, perf) != CUDNN_STATUS_SUCCESS
++        || ret == 0) {
++        CUDNN_CHECK(cudnnGetConvolutionForwardAlgorithm_v7(handle, p.x_desc, p.w_desc,
++                                                           p.c_desc, p.y_desc, req,
++                                                           &ret, perf));
++    }
++    bool picked = false;
++    for (int i = 0; i < ret; ++i) {
++        if (perf[i].status == CUDNN_STATUS_SUCCESS) {
++            p.algo = perf[i].algo;
++            picked = true;
++            break;
++        }
++    }
++    if (!picked) {
++        return false;
++    }
++
++    CUDNN_CHECK(cudnnGetConvolutionForwardWorkspaceSize(handle, p.x_desc, p.w_desc,
++                                                        p.c_desc, p.y_desc, p.algo,
++                                                        &p.workspace_size));
++    if (p.workspace_size > 0) {
++        // Persistent dedicated workspace (NOT the ggml pool): allocated once here,
++        // outside capture, and reused for every replay. A pool grow during capture
++        // would be an illegal in-capture cudaMalloc.
++        if (cudaMalloc(&p.workspace, p.workspace_size) != cudaSuccess) {
++            return false;
++        }
++    }
++
++    auto res = g_cache.emplace(k, p);
++    *out = &res.first->second;
++    return true;
++}
++
++} // namespace
++
++bool ggml_cuda_op_conv2d_cudnn(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
++    if (cudnn_disabled_by_env()) {
++        return false;
++    }
++
++    const ggml_tensor * kernel = dst->src[0];
++    const ggml_tensor * input  = dst->src[1];
++
++    // F32 weights only (cuDNN FP32 filter). F16 falls back to the native kernel.
++    if (kernel->type != GGML_TYPE_F32 || input->type != GGML_TYPE_F32 ||
++        dst->type != GGML_TYPE_F32) {
++        return false;
++    }
++    if (!ggml_is_contiguous(kernel) || !ggml_is_contiguous(input) ||
++        !ggml_is_contiguous(dst)) {
++        return false;
++    }
++
++    const int32_t * p = (const int32_t *) dst->op_params;
++    if (p[6] != 0) {
++        return false;  // cwhn (NHWC) variant not handled by this NCHW path
++    }
++
++    conv_key k;
++    std::memset(&k, 0, sizeof(k));
++    k.W      = (int) input->ne[0];
++    k.H      = (int) input->ne[1];
++    k.C      = (int) input->ne[2];
++    k.N      = (int) input->ne[3];
++    k.KW     = (int) kernel->ne[0];
++    k.KH     = (int) kernel->ne[1];
++    k.OC     = (int) kernel->ne[3];
++    k.sw     = p[0];
++    k.sh     = p[1];
++    k.pw     = p[2];
++    k.ph     = p[3];
++    k.dw     = p[4];
++    k.dh     = p[5];
++    k.device = ctx.device;
++
++    if (input->ne[2] != kernel->ne[2]) {
++        return false;  // mismatched input channels
++    }
++
++    cudaStream_t st = ctx.stream();
++
++    std::lock_guard<std::mutex> lock(g_mutex);
++
++    cudnnHandle_t handle = get_handle(ctx.device);
++    if (handle == nullptr) {
++        return false;
++    }
++
++    // If a never-seen shape is hit during capture we cannot safely set up
++    // descriptors/workspace (would allocate inside the capture); fall back.
++    conv_plan * plan = nullptr;
++    if (g_cache.find(k) == g_cache.end()) {
++        cudaStreamCaptureStatus cap = cudaStreamCaptureStatusNone;
++        if (cudaStreamIsCapturing(st, &cap) != cudaSuccess ||
++            cap != cudaStreamCaptureStatusNone) {
++            return false;
++        }
++    }
++    if (!get_or_build_plan(handle, k, &plan)) {
++        return false;
++    }
++
++    // Bind the ggml compute stream so the conv launches record into the CUDA
++    // graph being captured (or just run on it during eager warmup). Host-only.
++    if (cudnnSetStream(handle, st) != CUDNN_STATUS_SUCCESS) {
++        return false;
++    }
++
++    const float   alpha = 1.0f;
++    const float   beta  = 0.0f;
++    const float * X_D   = (const float *) input->data;
++    const float * W_D   = (const float *) kernel->data;
++    float *       Y_D   = (float *) dst->data;
++
++    CUDNN_CHECK(cudnnConvolutionForward(handle, &alpha, plan->x_desc, X_D,
++                                        plan->w_desc, W_D, plan->c_desc, plan->algo,
++                                        plan->workspace, plan->workspace_size,
++                                        &beta, plan->y_desc, Y_D));
++    return true;
++}
++
++#endif // GGML_CUDA_USE_CUDNN
+diff --git a/src/ggml-cuda/cudnn-conv.cuh b/src/ggml-cuda/cudnn-conv.cuh
+new file mode 100644
+index 00000000..c4f5f1a8
+--- /dev/null
++++ b/src/ggml-cuda/cudnn-conv.cuh
+@@ -0,0 +1,15 @@
++#pragma once
++#include "common.cuh"
++
++// cuDNN-backed forward 2D convolution for GGML_OP_CONV_2D.
++//
++// Returns true if the op was executed via cuDNN; false if cuDNN is unavailable,
++// disabled (env GGML_CUDA_USE_CUDNN=0), the op shape is unsupported, or a
++// never-before-seen shape is hit while the stream is being captured into a CUDA
++// graph (descriptor/workspace/algo setup must NOT run during capture). On false
++// the caller falls back to the native ggml conv2d kernel.
++//
++// Compiled only with -DGGML_CUDA_USE_CUDNN. The declaration is always visible so
++// ggml-cuda.cu can reference it under the same macro guard without an extra
++// include dance.
++bool ggml_cuda_op_conv2d_cudnn(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
+diff --git a/src/ggml-cuda/ggml-cuda.cu b/src/ggml-cuda/ggml-cuda.cu
+index 3d4b5f60..0a5d5d22 100644
+--- a/src/ggml-cuda/ggml-cuda.cu
++++ b/src/ggml-cuda/ggml-cuda.cu
+@@ -15,6 +15,7 @@
+ #include "ggml-cuda/concat.cuh"
+ #include "ggml-cuda/conv-transpose-1d.cuh"
+ #include "ggml-cuda/conv2d.cuh"
++#include "ggml-cuda/cudnn-conv.cuh"
+ #include "ggml-cuda/conv2d-dw.cuh"
+ #include "ggml-cuda/conv2d-transpose.cuh"
+ #include "ggml-cuda/convert.cuh"
+@@ -3041,6 +3042,12 @@ static bool ggml_cuda_compute_forward(ggml_backend_cuda_context & ctx, struct gg
+             ggml_cuda_op_im2col_3d(ctx, dst);
+             break;
+         case GGML_OP_CONV_2D:
++#ifdef GGML_CUDA_USE_CUDNN
++            // cuDNN implicit-GEMM (no im2col global-memory spill). Falls back to
++            // the native kernel when disabled/unsupported or on an uncached shape
++            // seen mid-capture. See cudnn-conv.cu.
++            if (ggml_cuda_op_conv2d_cudnn(ctx, dst)) break;
++#endif
+             ggml_cuda_op_conv2d(ctx, dst);
+             break;
+         case GGML_OP_CONV_2D_DW:

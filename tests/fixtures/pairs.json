@@ -1,0 +1,4 @@
+[
+  {"a": "clip_a.wav", "b": "clip_b_same.wav", "same": true},
+  {"a": "clip_a.wav", "b": "clip_c_diff.wav", "same": false}
+]

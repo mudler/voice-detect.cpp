@@ -1,0 +1,14 @@
+# Reference-side (conversion + baseline) dependencies. These are NOT needed at
+# inference time - voice-detect.cpp runs the GGUF natively with no Python.
+#
+# SpeechBrain ECAPA-TDNN is the primary/anchor encoder; torch + torchaudio
+# provide the Kaldi-compatible FBank reference (torchaudio.compliance.kaldi) used
+# to dump golden features. The WeSpeaker ResNet34 / 3D-Speaker ERes2Net / CAM++
+# encoders ship as ONNX, so onnxruntime is used to read their weights/run the
+# reference. soundfile loads audio for the baseline dumper. gguf writes the GGUF.
+speechbrain
+torch
+torchaudio
+onnxruntime
+soundfile
+gguf

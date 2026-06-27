@@ -1,0 +1,232 @@
+# verbatim SpeechBrain ECAPA state_dict tensor names + torch shapes
+asp.conv.conv.bias	3072
+asp.conv.conv.weight	3072,128,1
+asp.tdnn.conv.conv.bias	128
+asp.tdnn.conv.conv.weight	128,9216,1
+asp.tdnn.norm.norm.bias	128
+asp.tdnn.norm.norm.num_batches_tracked	
+asp.tdnn.norm.norm.running_mean	128
+asp.tdnn.norm.norm.running_var	128
+asp.tdnn.norm.norm.weight	128
+asp_bn.norm.bias	6144
+asp_bn.norm.num_batches_tracked	
+asp_bn.norm.running_mean	6144
+asp_bn.norm.running_var	6144
+asp_bn.norm.weight	6144
+blocks.0.conv.conv.bias	1024
+blocks.0.conv.conv.weight	1024,80,5
+blocks.0.norm.norm.bias	1024
+blocks.0.norm.norm.num_batches_tracked	
+blocks.0.norm.norm.running_mean	1024
+blocks.0.norm.norm.running_var	1024
+blocks.0.norm.norm.weight	1024
+blocks.1.res2net_block.blocks.0.conv.conv.bias	128
+blocks.1.res2net_block.blocks.0.conv.conv.weight	128,128,3
+blocks.1.res2net_block.blocks.0.norm.norm.bias	128
+blocks.1.res2net_block.blocks.0.norm.norm.num_batches_tracked	
+blocks.1.res2net_block.blocks.0.norm.norm.running_mean	128
+blocks.1.res2net_block.blocks.0.norm.norm.running_var	128
+blocks.1.res2net_block.blocks.0.norm.norm.weight	128
+blocks.1.res2net_block.blocks.1.conv.conv.bias	128
+blocks.1.res2net_block.blocks.1.conv.conv.weight	128,128,3
+blocks.1.res2net_block.blocks.1.norm.norm.bias	128
+blocks.1.res2net_block.blocks.1.norm.norm.num_batches_tracked	
+blocks.1.res2net_block.blocks.1.norm.norm.running_mean	128
+blocks.1.res2net_block.blocks.1.norm.norm.running_var	128
+blocks.1.res2net_block.blocks.1.norm.norm.weight	128
+blocks.1.res2net_block.blocks.2.conv.conv.bias	128
+blocks.1.res2net_block.blocks.2.conv.conv.weight	128,128,3
+blocks.1.res2net_block.blocks.2.norm.norm.bias	128
+blocks.1.res2net_block.blocks.2.norm.norm.num_batches_tracked	
+blocks.1.res2net_block.blocks.2.norm.norm.running_mean	128
+blocks.1.res2net_block.blocks.2.norm.norm.running_var	128
+blocks.1.res2net_block.blocks.2.norm.norm.weight	128
+blocks.1.res2net_block.blocks.3.conv.conv.bias	128
+blocks.1.res2net_block.blocks.3.conv.conv.weight	128,128,3
+blocks.1.res2net_block.blocks.3.norm.norm.bias	128
+blocks.1.res2net_block.blocks.3.norm.norm.num_batches_tracked	
+blocks.1.res2net_block.blocks.3.norm.norm.running_mean	128
+blocks.1.res2net_block.blocks.3.norm.norm.running_var	128
+blocks.1.res2net_block.blocks.3.norm.norm.weight	128
+blocks.1.res2net_block.blocks.4.conv.conv.bias	128
+blocks.1.res2net_block.blocks.4.conv.conv.weight	128,128,3
+blocks.1.res2net_block.blocks.4.norm.norm.bias	128
+blocks.1.res2net_block.blocks.4.norm.norm.num_batches_tracked	
+blocks.1.res2net_block.blocks.4.norm.norm.running_mean	128
+blocks.1.res2net_block.blocks.4.norm.norm.running_var	128
+blocks.1.res2net_block.blocks.4.norm.norm.weight	128
+blocks.1.res2net_block.blocks.5.conv.conv.bias	128
+blocks.1.res2net_block.blocks.5.conv.conv.weight	128,128,3
+blocks.1.res2net_block.blocks.5.norm.norm.bias	128
+blocks.1.res2net_block.blocks.5.norm.norm.num_batches_tracked	
+blocks.1.res2net_block.blocks.5.norm.norm.running_mean	128
+blocks.1.res2net_block.blocks.5.norm.norm.running_var	128
+blocks.1.res2net_block.blocks.5.norm.norm.weight	128
+blocks.1.res2net_block.blocks.6.conv.conv.bias	128
+blocks.1.res2net_block.blocks.6.conv.conv.weight	128,128,3
+blocks.1.res2net_block.blocks.6.norm.norm.bias	128
+blocks.1.res2net_block.blocks.6.norm.norm.num_batches_tracked	
+blocks.1.res2net_block.blocks.6.norm.norm.running_mean	128
+blocks.1.res2net_block.blocks.6.norm.norm.running_var	128
+blocks.1.res2net_block.blocks.6.norm.norm.weight	128
+blocks.1.se_block.conv1.conv.bias	128
+blocks.1.se_block.conv1.conv.weight	128,1024,1
+blocks.1.se_block.conv2.conv.bias	1024
+blocks.1.se_block.conv2.conv.weight	1024,128,1
+blocks.1.tdnn1.conv.conv.bias	1024
+blocks.1.tdnn1.conv.conv.weight	1024,1024,1
+blocks.1.tdnn1.norm.norm.bias	1024
+blocks.1.tdnn1.norm.norm.num_batches_tracked	
+blocks.1.tdnn1.norm.norm.running_mean	1024
+blocks.1.tdnn1.norm.norm.running_var	1024
+blocks.1.tdnn1.norm.norm.weight	1024
+blocks.1.tdnn2.conv.conv.bias	1024
+blocks.1.tdnn2.conv.conv.weight	1024,1024,1
+blocks.1.tdnn2.norm.norm.bias	1024
+blocks.1.tdnn2.norm.norm.num_batches_tracked	
+blocks.1.tdnn2.norm.norm.running_mean	1024
+blocks.1.tdnn2.norm.norm.running_var	1024
+blocks.1.tdnn2.norm.norm.weight	1024
+blocks.2.res2net_block.blocks.0.conv.conv.bias	128
+blocks.2.res2net_block.blocks.0.conv.conv.weight	128,128,3
+blocks.2.res2net_block.blocks.0.norm.norm.bias	128
+blocks.2.res2net_block.blocks.0.norm.norm.num_batches_tracked	
+blocks.2.res2net_block.blocks.0.norm.norm.running_mean	128
+blocks.2.res2net_block.blocks.0.norm.norm.running_var	128
+blocks.2.res2net_block.blocks.0.norm.norm.weight	128
+blocks.2.res2net_block.blocks.1.conv.conv.bias	128
+blocks.2.res2net_block.blocks.1.conv.conv.weight	128,128,3
+blocks.2.res2net_block.blocks.1.norm.norm.bias	128
+blocks.2.res2net_block.blocks.1.norm.norm.num_batches_tracked	
+blocks.2.res2net_block.blocks.1.norm.norm.running_mean	128
+blocks.2.res2net_block.blocks.1.norm.norm.running_var	128
+blocks.2.res2net_block.blocks.1.norm.norm.weight	128
+blocks.2.res2net_block.blocks.2.conv.conv.bias	128
+blocks.2.res2net_block.blocks.2.conv.conv.weight	128,128,3
+blocks.2.res2net_block.blocks.2.norm.norm.bias	128
+blocks.2.res2net_block.blocks.2.norm.norm.num_batches_tracked	
+blocks.2.res2net_block.blocks.2.norm.norm.running_mean	128
+blocks.2.res2net_block.blocks.2.norm.norm.running_var	128
+blocks.2.res2net_block.blocks.2.norm.norm.weight	128
+blocks.2.res2net_block.blocks.3.conv.conv.bias	128
+blocks.2.res2net_block.blocks.3.conv.conv.weight	128,128,3
+blocks.2.res2net_block.blocks.3.norm.norm.bias	128
+blocks.2.res2net_block.blocks.3.norm.norm.num_batches_tracked	
+blocks.2.res2net_block.blocks.3.norm.norm.running_mean	128
+blocks.2.res2net_block.blocks.3.norm.norm.running_var	128
+blocks.2.res2net_block.blocks.3.norm.norm.weight	128
+blocks.2.res2net_block.blocks.4.conv.conv.bias	128
+blocks.2.res2net_block.blocks.4.conv.conv.weight	128,128,3
+blocks.2.res2net_block.blocks.4.norm.norm.bias	128
+blocks.2.res2net_block.blocks.4.norm.norm.num_batches_tracked	
+blocks.2.res2net_block.blocks.4.norm.norm.running_mean	128
+blocks.2.res2net_block.blocks.4.norm.norm.running_var	128
+blocks.2.res2net_block.blocks.4.norm.norm.weight	128
+blocks.2.res2net_block.blocks.5.conv.conv.bias	128
+blocks.2.res2net_block.blocks.5.conv.conv.weight	128,128,3
+blocks.2.res2net_block.blocks.5.norm.norm.bias	128
+blocks.2.res2net_block.blocks.5.norm.norm.num_batches_tracked	
+blocks.2.res2net_block.blocks.5.norm.norm.running_mean	128
+blocks.2.res2net_block.blocks.5.norm.norm.running_var	128
+blocks.2.res2net_block.blocks.5.norm.norm.weight	128
+blocks.2.res2net_block.blocks.6.conv.conv.bias	128
+blocks.2.res2net_block.blocks.6.conv.conv.weight	128,128,3
+blocks.2.res2net_block.blocks.6.norm.norm.bias	128
+blocks.2.res2net_block.blocks.6.norm.norm.num_batches_tracked	
+blocks.2.res2net_block.blocks.6.norm.norm.running_mean	128
+blocks.2.res2net_block.blocks.6.norm.norm.running_var	128
+blocks.2.res2net_block.blocks.6.norm.norm.weight	128
+blocks.2.se_block.conv1.conv.bias	128
+blocks.2.se_block.conv1.conv.weight	128,1024,1
+blocks.2.se_block.conv2.conv.bias	1024
+blocks.2.se_block.conv2.conv.weight	1024,128,1
+blocks.2.tdnn1.conv.conv.bias	1024
+blocks.2.tdnn1.conv.conv.weight	1024,1024,1
+blocks.2.tdnn1.norm.norm.bias	1024
+blocks.2.tdnn1.norm.norm.num_batches_tracked	
+blocks.2.tdnn1.norm.norm.running_mean	1024
+blocks.2.tdnn1.norm.norm.running_var	1024
+blocks.2.tdnn1.norm.norm.weight	1024
+blocks.2.tdnn2.conv.conv.bias	1024
+blocks.2.tdnn2.conv.conv.weight	1024,1024,1
+blocks.2.tdnn2.norm.norm.bias	1024
+blocks.2.tdnn2.norm.norm.num_batches_tracked	
+blocks.2.tdnn2.norm.norm.running_mean	1024
+blocks.2.tdnn2.norm.norm.running_var	1024
+blocks.2.tdnn2.norm.norm.weight	1024
+blocks.3.res2net_block.blocks.0.conv.conv.bias	128
+blocks.3.res2net_block.blocks.0.conv.conv.weight	128,128,3
+blocks.3.res2net_block.blocks.0.norm.norm.bias	128
+blocks.3.res2net_block.blocks.0.norm.norm.num_batches_tracked	
+blocks.3.res2net_block.blocks.0.norm.norm.running_mean	128
+blocks.3.res2net_block.blocks.0.norm.norm.running_var	128
+blocks.3.res2net_block.blocks.0.norm.norm.weight	128
+blocks.3.res2net_block.blocks.1.conv.conv.bias	128
+blocks.3.res2net_block.blocks.1.conv.conv.weight	128,128,3
+blocks.3.res2net_block.blocks.1.norm.norm.bias	128
+blocks.3.res2net_block.blocks.1.norm.norm.num_batches_tracked	
+blocks.3.res2net_block.blocks.1.norm.norm.running_mean	128
+blocks.3.res2net_block.blocks.1.norm.norm.running_var	128
+blocks.3.res2net_block.blocks.1.norm.norm.weight	128
+blocks.3.res2net_block.blocks.2.conv.conv.bias	128
+blocks.3.res2net_block.blocks.2.conv.conv.weight	128,128,3
+blocks.3.res2net_block.blocks.2.norm.norm.bias	128
+blocks.3.res2net_block.blocks.2.norm.norm.num_batches_tracked	
+blocks.3.res2net_block.blocks.2.norm.norm.running_mean	128
+blocks.3.res2net_block.blocks.2.norm.norm.running_var	128
+blocks.3.res2net_block.blocks.2.norm.norm.weight	128
+blocks.3.res2net_block.blocks.3.conv.conv.bias	128
+blocks.3.res2net_block.blocks.3.conv.conv.weight	128,128,3
+blocks.3.res2net_block.blocks.3.norm.norm.bias	128
+blocks.3.res2net_block.blocks.3.norm.norm.num_batches_tracked	
+blocks.3.res2net_block.blocks.3.norm.norm.running_mean	128
+blocks.3.res2net_block.blocks.3.norm.norm.running_var	128
+blocks.3.res2net_block.blocks.3.norm.norm.weight	128
+blocks.3.res2net_block.blocks.4.conv.conv.bias	128
+blocks.3.res2net_block.blocks.4.conv.conv.weight	128,128,3
+blocks.3.res2net_block.blocks.4.norm.norm.bias	128
+blocks.3.res2net_block.blocks.4.norm.norm.num_batches_tracked	
+blocks.3.res2net_block.blocks.4.norm.norm.running_mean	128
+blocks.3.res2net_block.blocks.4.norm.norm.running_var	128
+blocks.3.res2net_block.blocks.4.norm.norm.weight	128
+blocks.3.res2net_block.blocks.5.conv.conv.bias	128
+blocks.3.res2net_block.blocks.5.conv.conv.weight	128,128,3
+blocks.3.res2net_block.blocks.5.norm.norm.bias	128
+blocks.3.res2net_block.blocks.5.norm.norm.num_batches_tracked	
+blocks.3.res2net_block.blocks.5.norm.norm.running_mean	128
+blocks.3.res2net_block.blocks.5.norm.norm.running_var	128
+blocks.3.res2net_block.blocks.5.norm.norm.weight	128
+blocks.3.res2net_block.blocks.6.conv.conv.bias	128
+blocks.3.res2net_block.blocks.6.conv.conv.weight	128,128,3
+blocks.3.res2net_block.blocks.6.norm.norm.bias	128
+blocks.3.res2net_block.blocks.6.norm.norm.num_batches_tracked	
+blocks.3.res2net_block.blocks.6.norm.norm.running_mean	128
+blocks.3.res2net_block.blocks.6.norm.norm.running_var	128
+blocks.3.res2net_block.blocks.6.norm.norm.weight	128
+blocks.3.se_block.conv1.conv.bias	128
+blocks.3.se_block.conv1.conv.weight	128,1024,1
+blocks.3.se_block.conv2.conv.bias	1024
+blocks.3.se_block.conv2.conv.weight	1024,128,1
+blocks.3.tdnn1.conv.conv.bias	1024
+blocks.3.tdnn1.conv.conv.weight	1024,1024,1
+blocks.3.tdnn1.norm.norm.bias	1024
+blocks.3.tdnn1.norm.norm.num_batches_tracked	
+blocks.3.tdnn1.norm.norm.running_mean	1024
+blocks.3.tdnn1.norm.norm.running_var	1024
+blocks.3.tdnn1.norm.norm.weight	1024
+blocks.3.tdnn2.conv.conv.bias	1024
+blocks.3.tdnn2.conv.conv.weight	1024,1024,1
+blocks.3.tdnn2.norm.norm.bias	1024
+blocks.3.tdnn2.norm.norm.num_batches_tracked	
+blocks.3.tdnn2.norm.norm.running_mean	1024
+blocks.3.tdnn2.norm.norm.running_var	1024
+blocks.3.tdnn2.norm.norm.weight	1024
+fc.conv.bias	192
+fc.conv.weight	192,6144,1
+mfa.conv.conv.bias	3072
+mfa.conv.conv.weight	3072,3072,1
+mfa.norm.norm.bias	3072
+mfa.norm.norm.num_batches_tracked	
+mfa.norm.norm.running_mean	3072
+mfa.norm.norm.running_var	3072
+mfa.norm.norm.weight	3072
